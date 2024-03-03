@@ -1,8 +1,8 @@
 {
-    "aimbot": true,
-    "screenShotWidth": "400",
-    "screenShotHeight": "400",
+    "aimbot": false,
+    "screenShotWidth": "640",
+    "screenShotHeight": "640",
     "detection_threshold": "0.65",
-    "triggerType": "shitf+\u6309\u4e0b",
+    "triggerType": "",
     "lockKey": "0x2"
 }

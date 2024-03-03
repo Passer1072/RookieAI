@@ -1,6 +1,7 @@
 ### importing required libraries
 import gc
 from json.encoder import INFINITY
+from socket import timeout
 import torch
 import os
 import cv2
@@ -8,6 +9,7 @@ from time import time, sleep
 import win32api, win32con
 import pyautogui
 import numpy as np
+import keyboard
 import mss
 from math import sqrt
 import PySimpleGUI as sg
@@ -16,11 +18,11 @@ import win32con
 import json
 import keyboard
 import sys
+import threading
+from ctypes import *
+import math
 
 
-frame_counter = 0
-
-start_time = time()
 
 triggerType = None
 
@@ -42,7 +44,6 @@ detection_threshold = 0.65  # 切断敌人瞄准的确定性百分比(置信度)
 
 lockKey = 0x2  # 0x14大小写 0x05下侧键 0x2右键 0x1左键
 
-
 sct = mss.mss()
 
 layout = [
@@ -58,7 +59,7 @@ layout = [
         [sg.Text('游戏窗口', size=(15, 1)), sg.Combo(["Apex Legends", "任务管理器"], key="gw1")],
         [sg.Text('自瞄范围', size=(15, 1)), sg.InputText("100", key="ld1")],
         [sg.Text('自瞄速度', size=(15, 1)), sg.InputText("0.4", key="ls1")],
-        [sg.Button('保存设置'), sg.Button('开始'), sg.Button('退出')]
+        [sg.Button('开始'), sg.Button('退出')]
     ],
 ]
 
@@ -156,8 +157,6 @@ def FindPoint(x1, y1, x2,
 ### ------------------------------------ to plot the BBox and results --------------------------------------------------------
 
 def plot_boxes(results, frame, area, arduino, lockDistance, lockSpeed, classes, triggerType):
-    global frame_counter
-    global start_time
     # print(test)
     # print("测试点1", triggerType)
 
@@ -178,10 +177,8 @@ def plot_boxes(results, frame, area, arduino, lockDistance, lockSpeed, classes, 
         if row[4] >= detection_threshold:  ### threshold value for detection. We are discarding everything below this value 检测阈值。 我们将丢弃低于该值的所有内容
             confidence_score = row[4]
             x1, y1, x2, y2 = int(row[0] * x_shape), int(row[1] * y_shape), int(row[2] * x_shape), int(row[3] * y_shape)  ## BBOx coordniates BBOx 坐标
-            # 单独赋值画线的终点
-            x_line1, y_line1 = x1, y1
-            cv2.line(frame, (0, 0), (x_line1, y_line1), (0, 0, 255), 2)  # 画线
-            ### 检查鼠标的距离，如果最接近，请选择此
+
+            ### Check dist to mouse and if closest select this 检查鼠标的距离，如果最接近，请选择此
             centerx = x1 - (0.5 * (x1 - x2))
             centery = y1 - (0.5 * (y1 - y2))
 
@@ -281,22 +278,6 @@ def plot_boxes(results, frame, area, arduino, lockDistance, lockSpeed, classes, 
                     centery -= 540
                     arduino.write(f"{int(centerx * lockSpeed)}:{int(centery * lockSpeed)}x".encode())
     # print(f"[INFO] Finished extraction, returning frame!")
-    # 更新帧计数器
-    frame_counter += 1
-
-    # get the frame rate
-    end_time = time()
-    # 避免被零除
-    if end_time - start_time != 0:
-        frame_rate = frame_counter / (end_time - start_time)
-        # reset frame_counter and start_time for next second
-        frame_counter = 0
-        start_time = time()
-    else:
-        frame_rate = 0  # Or assign something that makes sense in your case
-
-    # 显示帧率
-    cv2.putText(frame, f"FPS: {frame_rate:.2f}", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     return frame
 
 

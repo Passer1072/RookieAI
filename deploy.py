@@ -1,7 +1,6 @@
 ### importing required libraries
 import gc
 from json.encoder import INFINITY
-from socket import timeout
 import torch
 import os
 import cv2
@@ -9,7 +8,6 @@ from time import time, sleep
 import win32api, win32con
 import pyautogui
 import numpy as np
-import keyboard
 import mss
 from math import sqrt
 import PySimpleGUI as sg
@@ -18,9 +16,12 @@ import win32con
 import json
 import keyboard
 import sys
-import threading
-from ctypes import *
-import math
+import random
+
+
+frame_counter = 0
+start_time = time()
+
 triggerType = None
 
 aimbot = True  # 如果 True，则启用瞄准机器人
@@ -41,6 +42,7 @@ detection_threshold = 0.65  # 切断敌人瞄准的确定性百分比(置信度)
 
 lockKey = 0x2  # 0x14大小写 0x05下侧键 0x2右键 0x1左键
 
+
 sct = mss.mss()
 
 layout = [
@@ -56,7 +58,7 @@ layout = [
         [sg.Text('游戏窗口', size=(15, 1)), sg.Combo(["Apex Legends", "任务管理器"], key="gw1")],
         [sg.Text('自瞄范围', size=(15, 1)), sg.InputText("100", key="ld1")],
         [sg.Text('自瞄速度', size=(15, 1)), sg.InputText("0.4", key="ls1")],
-        [sg.Button('开始'), sg.Button('退出')]
+        [sg.Button('保存设置'), sg.Button('开始'), sg.Button('退出')]
     ],
 ]
 
@@ -126,11 +128,16 @@ def configSettings():
     return triggerType, test
 
 
-def detectx(frame, model):
+def detectx(frame, model):  # 推理部分
+    # start_time = time()
+
     frame = [frame]
     # print(f"[INFO] Detecting. . . ")
     results = model(frame)
 
+    end_time = time()
+    # inference_time = end_time - start_time
+    # print(f"Inference time: {inference_time} seconds")
 
     labels, cordinates = results.xyxyn[0][:, -1], results.xyxyn[0][:, :-1]
 
@@ -139,8 +146,8 @@ def detectx(frame, model):
 
 def FindPoint(x1, y1, x2,
               y2, x, y):
-    if (x > x1 and x < x2 and
-            y > y1 and y < y2):
+    if (x1 < x < x2 and
+            y1 < y < y2):
         return True
     else:
         return False
@@ -149,8 +156,11 @@ def FindPoint(x1, y1, x2,
 ### ------------------------------------ to plot the BBox and results --------------------------------------------------------
 
 def plot_boxes(results, frame, area, arduino, lockDistance, lockSpeed, classes, triggerType):
+    global frame_counter
+    global start_time
     # print(test)
-    print("测试点1", triggerType)
+    # print("测试点1", triggerType)
+
     labels, cord = results
     n = len(labels)
     x_shape, y_shape = frame.shape[1], frame.shape[0]
@@ -165,11 +175,15 @@ def plot_boxes(results, frame, area, arduino, lockDistance, lockSpeed, classes, 
     ### looping through to find closest target to mouse 循环查找距离鼠标最近的目标
     for i in range(n):
         row = cord[i]
-        if row[4] >= detection_threshold:  ### threshold value for detection. We are discarding everything below this value 检测阈值。 我们将丢弃低于该值的所有内容
+        if row[4] >= detection_threshold:  ### 检测阈值。 我们将丢弃低于该值的所有内容
             confidence_score = row[4]
             x1, y1, x2, y2 = int(row[0] * x_shape), int(row[1] * y_shape), int(row[2] * x_shape), int(row[3] * y_shape)  ## BBOx coordniates BBOx 坐标
 
-            ### Check dist to mouse and if closest select this 检查鼠标的距离，如果最接近，请选择此
+            # 单独赋值画线的终点
+            x_line1, y_line1 = x1, y1
+            cv2.line(frame, (0, 0), (x_line1, y_line1), (0, 0, 255), 1)  # 画线
+
+            ### 检查鼠标的距离，如果最接近，请选择此
             centerx = x1 - (0.5 * (x1 - x2))
             centery = y1 - (0.5 * (y1 - y2))
 
@@ -193,8 +207,8 @@ def plot_boxes(results, frame, area, arduino, lockDistance, lockSpeed, classes, 
             cv2.rectangle(frame, (x1, label_ymin - labelSize[1] - 10), (x1 + labelSize[0], label_ymin + baseLine - 10),
                           (255, 255, 255), cv2.FILLED)
             cv2.putText(frame, label, (x1, label_ymin - 7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-    print(triggerType)
-    print("目标：", best_detection)
+    # print(triggerType)
+    # print("目标：", best_detection)
     if best_detection is not None:
         x1, y1, x2, y2 = int(best_detection[0] * x_shape), int(best_detection[1] * y_shape), int(
             best_detection[2] * x_shape), int(best_detection[3] * y_shape)  ## BBOx coordniates
@@ -213,8 +227,8 @@ def plot_boxes(results, frame, area, arduino, lockDistance, lockSpeed, classes, 
         centery = (centery + headshot_offset) - cHeight
 
         # 触发方式选择=
-        print(type(triggerType))
-        print("测试点2", triggerType)
+        # print(type(triggerType))
+        # print("测试点2", triggerType)
         # 第一种（使用触发键切换）
         if triggerType == "切换":
             print(101)
@@ -269,11 +283,31 @@ def plot_boxes(results, frame, area, arduino, lockDistance, lockSpeed, classes, 
                     centery -= 540
                     arduino.write(f"{int(centerx * lockSpeed)}:{int(centery * lockSpeed)}x".encode())
     # print(f"[INFO] Finished extraction, returning frame!")
+    # 更新帧计数器
+    frame_counter += 1
+
+    # get the frame rate
+    end_time = time()
+    # 避免被零除
+    if end_time - start_time != 0:
+        frame_rate = frame_counter / (end_time - start_time)
+        # 重置下一秒的frame_counter和start_time
+        frame_counter = 0
+        start_time = time()
+    else:
+        frame_rate = 0  # Or assign something that makes sense in your case
+
+    # display the frame rate
+    cv2.putText(frame, f"FPS: {frame_rate:.2f}", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     return frame
 
 
 ### ---------------------------------------------- Main function -----------------------------------------------------
 def main(arduino=False, run_loop=False, modelPath=None, gameWindow=None, lockSpeed=None, lockDist=None,  triggerType=None):
+
+    count_time = 0  # 初始化计数器
+    print_frequency = 20  # 每处理20帧打印一次
+
     # 调用函数显示配置设置
     triggerType, test = configSettings()
     if arduino == True:
@@ -324,9 +358,26 @@ def main(arduino=False, run_loop=False, modelPath=None, gameWindow=None, lockSpe
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
             results = detectx(frame, model=model)
+
+            # 定义开始时间
+            start_time = time()
             frame = plot_boxes(results, frame, sctArea, arduino, lockDistance=lockDist, lockSpeed=lockSpeed,
                                classes=classes, triggerType=triggerType)
 
+            # 在你的代码之后定义结束时间
+            end_time = time()
+            # 计算推理时间
+            inference_time = end_time - start_time
+            inference_time_ms = inference_time * 1000
+            # print(f"Inference time: {inference_time_ms:.2f} ms")
+
+            count_time += 1
+            if count_time % print_frequency == 0:  # 每处理print_frequency帧打印一次
+                print(f"Inference time: {inference_time_ms:.2f} ms")
+
+            # 在图像上添加推理时间
+            cv2.putText(frame, f"Inference time: {inference_time_ms:.2f} ms", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                        (0, 0, 255), 2)
             cv2.imshow("vid", frame)
 
             if cv2.waitKey(1) and 0xFF == ord('q'):
